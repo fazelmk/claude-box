@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# claude-box — run Claude Code in a read-only, immutable Podman container.
+#
+# Immutable:  --read-only makes the container root filesystem read-only. The
+#             only writable surfaces are the tmpfs mounts (scratch, discarded on
+#             exit) and the two bind mounts below.
+# Writable:   ~/.claude          (config, credentials, history, projects)
+#             $PWD               (the directory you launch it from)
+set -euo pipefail
+
+IMAGE="${CLAUDE_BOX_IMAGE:-localhost/claude-box:latest}"
+WORKDIR="$PWD"
+
+# ~/.claude must exist so the bind mount has a source and settings persist.
+mkdir -p "$HOME/.claude"
+
+# ~/.claude.json holds Claude Code's onboarding/auth/project state (separate
+# from the .claude dir). Mount it rw if present; create an empty one otherwise
+# so the container can write it back.
+[ -e "$HOME/.claude.json" ] || echo '{}' > "$HOME/.claude.json"
+
+exec podman run --rm -it \
+    --read-only \
+    --userns=keep-id \
+    --security-opt label=disable \
+    --tmpfs /tmp:rw,nosuid,nodev,mode=1777 \
+    --tmpfs /home/claude:rw,nosuid,nodev,mode=0777 \
+    -v "$HOME/.claude":/home/claude/.claude:rw \
+    -v "$HOME/.claude.json":/home/claude/.claude.json:rw \
+    -v "$WORKDIR":"$WORKDIR":rw \
+    -w "$WORKDIR" \
+    "$IMAGE" "$@"
